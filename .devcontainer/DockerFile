@@ -1,0 +1,45 @@
+FROM nvcr.io/nvidia/pytorch:23.01-py3
+
+LABEL maintainer="Melanie Segado <melanie.segado@gmail.com>"
+
+ARG DEBIAN_FRONTEND=noninteractive
+ENV NVIDIA_VISIBLE_DEVICES all \
+    NVIDIA_DRIVER_CAPABILITIES compute, utility
+
+WORKDIR /app
+#COPY requirements.txt .
+
+# Update package list and install essential packages
+RUN apt-get update && apt-get install -y \
+    wget bzip2 \
+    git \
+    curl \
+    libgl1 \
+    screen
+
+# Download and install Miniconda3
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh && \
+    bash miniconda.sh -b -p /opt/miniconda && \
+    rm miniconda.sh
+
+# Add Miniconda3 to the system PATH
+ENV PATH="/opt/miniconda/bin:${PATH}"
+
+RUN conda create -n predict_gma python=3.8 -y && \
+    echo ". activate predict_gma" >> ~/.bashrc
+
+ENV FORCE_CUDA="1"
+ENV MMCV_WITH_OPS=1
+ENV OPENCV_FFMPEG_READ_ATTEMPTS=10000
+
+RUN . activate predict_gma && \
+    conda install pytorch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 pytorch-cuda=12.1 -c pytorch -c nvidia && \
+    pip install -U openmim xtcocotools munkres ffmpeg-python ipykernel moviepy scikit-video && \
+    pip install -U auto-sklearn matplotlib && \
+    mim install mmengine && \
+    pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.1/index.html && \
+    mim install "mmdet>=3.1.0" 
+    # mim install "mmpose>=1.1.0" && \ 
+    # mim install "mmpretrain>=1.0.0rc8"
+    
+CMD ["/bin/bash"]
