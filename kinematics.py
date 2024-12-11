@@ -160,6 +160,55 @@ def angle_features(df):
     'median_vel_angle':median_vel,'IQR_vel_angle':IQR_vel,\
     'IQR_acc_angle': IQR_acc})
 
+def compute_rolling_features_angle(df, sampling_rate, window_duration=2):
+
+    """
+    Compute features over a rolling window.
+
+    Parameters:
+    - df: DataFrame containing required columns for angular computations.
+    - sampling_rate: Sampling rate of the data (e.g., 30 Hz).
+    - window_duration: Duration of the rolling window in seconds.
+
+    Returns:
+    - DataFrame containing computed features.
+    """
+
+
+    window_size = int(sampling_rate * window_duration)  # Convert seconds to frame count
+    results = []
+
+    for window_number, start_idx in enumerate(range(0, len(df) - window_size + 1)):
+        end_idx = start_idx + window_size
+        window = df.iloc[start_idx:end_idx]
+
+        # Skip empty or insufficient windows
+        if window.empty or len(window) < window_size:
+            continue
+
+        window = window.replace([np.inf, -np.inf], np.nan)
+        # - absolute angle
+        a_mean = np.degrees(CS.nanmean(np.array(np.radians(window['angle']))))
+        # - variability of angle
+        a_stdev = np.sqrt(np.degrees(CS.nanvar(np.array(np.radians(window['angle'])))))
+        # - measure of complexity (entropy)
+        a_ent = ent(window['angle'].round())
+        # - median absolute velocity
+        median_vel = (np.abs(window['velocity'])).median()
+        # - variability of velocity
+        IQR_vel = (window['velocity']).quantile(.75) - (window['velocity']).quantile(.25)
+        # - variability of acceleration
+        IQR_acc = window['acceleration'].quantile(.75) - window['acceleration'].quantile(.25)
+
+        results.append({'window_number': window_number, \
+                        't_start': window['time'].iloc[0], \
+                        'video':np.unique(window.video)[0],'bp':np.unique(window.bp)[0],\
+                        'mean_angle':a_mean, 'stdev_angle':a_stdev, 'entropy_angle':a_ent,
+                        'median_vel_angle':median_vel,'IQR_vel_angle':IQR_vel,\
+                        'IQR_acc_angle': IQR_acc})  
+
+    return pd.DataFrame(results)
+
 def xy_features(df):
     # - absolute position/angle    
     median_x = df['x'].median()
