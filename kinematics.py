@@ -160,54 +160,46 @@ def angle_features(df):
     'median_vel_angle':median_vel,'IQR_vel_angle':IQR_vel,\
     'IQR_acc_angle': IQR_acc})
 
-def compute_rolling_features_angle(df, sampling_rate, window_duration=2):
-
+def rolling_angle_features(df, window_size=30, min_periods=1):
     """
-    Compute features over a rolling window.
+    Compute rolling features for angles, velocities, and accelerations.
 
     Parameters:
-    - df: DataFrame containing required columns for angular computations.
-    - sampling_rate: Sampling rate of the data (e.g., 30 Hz).
-    - window_duration: Duration of the rolling window in seconds.
+    - df: DataFrame containing the data.
+    - window_size: Rolling window size in frames (default: 30).
+    - min_periods: Minimum number of observations in the window to compute a feature.
 
     Returns:
-    - DataFrame containing computed features.
+    - DataFrame with rolling features.
     """
+    # Replace infinities with NaN
+    df = df.replace([np.inf, -np.inf], np.nan)
 
+    # Compute rolling features
+    results = pd.DataFrame({
+        'frame': df['frame'],
+        'video': df['video'],
+        'bp': df['bp'],
+        # Absolute angle mean
+        'mean_angle': np.degrees(df['angle'].rolling(window=window_size, min_periods=min_periods)
+                                         .apply(lambda s: CS.nanmean(np.radians(s)), raw=False)),
+        # Variability of angle (standard deviation)
+        'stdev_angle': np.degrees(df['angle'].rolling(window=window_size, min_periods=min_periods)
+                                          .apply(lambda s: np.sqrt(CS.nanvar(np.radians(s))), raw=False)),
+        # Measure of complexity (entropy)
+        'entropy_angle': df['angle'].rolling(window=window_size, min_periods=min_periods)
+                                  .apply(lambda s: ent(s.round()), raw=False),
+        # Median absolute velocity
+        'median_vel': df['velocity'].rolling(window=window_size, min_periods=min_periods).apply(lambda s: np.median(np.abs(s)), raw=False),
+        # Variability of velocity (IQR)
+        'IQR_vel': df['velocity'].rolling(window=window_size, min_periods=min_periods).quantile(0.75) -
+                           df['velocity'].rolling(window=window_size, min_periods=min_periods).quantile(0.25),
+        # Variability of acceleration (IQR)
+        'IQR_acc': df['acceleration'].rolling(window=window_size, min_periods=min_periods).quantile(0.75) -
+                           df['acceleration'].rolling(window=window_size, min_periods=min_periods).quantile(0.25),
+    })
 
-    window_size = int(sampling_rate * window_duration)  # Convert seconds to frame count
-    results = []
-
-    for window_number, start_idx in enumerate(range(0, len(df) - window_size + 1)):
-        end_idx = start_idx + window_size
-        window = df[df.frame.between(start_idx, end_idx)]
-
-        # Skip empty or insufficient windows
-        if window.empty or len(window) < window_size:
-            continue
-
-        window = window.replace([np.inf, -np.inf], np.nan)
-        # - absolute angle
-        a_mean = np.degrees(CS.nanmean(np.array(np.radians(window['angle']))))
-        # - variability of angle
-        a_stdev = np.sqrt(np.degrees(CS.nanvar(np.array(np.radians(window['angle'])))))
-        # - measure of complexity (entropy)
-        a_ent = ent(window['angle'].round())
-        # - median absolute velocity
-        median_vel = (np.abs(window['velocity'])).median()
-        # - variability of velocity
-        IQR_vel = (window['velocity']).quantile(.75) - (window['velocity']).quantile(.25)
-        # - variability of acceleration
-        IQR_acc = window['acceleration'].quantile(.75) - window['acceleration'].quantile(.25)
-
-        results.append({'window_number': window_number, \
-                        't_start': window['time'].iloc[0], \
-                        'video':np.unique(window.video)[0],'bp':np.unique(window.bp)[0],\
-                        'mean_angle':a_mean, 'stdev_angle':a_stdev, 'entropy_angle':a_ent,
-                        'median_vel_angle':median_vel,'IQR_vel_angle':IQR_vel,\
-                        'IQR_acc_angle': IQR_acc})  
-
-    return pd.DataFrame(results)
+    return results
 
 def xy_features(df):
     # - absolute position/angle    
@@ -250,9 +242,10 @@ def compute_rolling_features(df, sampling_rate, window_duration=2):
     - DataFrame containing computed features.
     """
     window_size = int(sampling_rate * window_duration)  # Convert seconds to frame count
+    step_size = window_size // 2
     results = []
 
-    for window_number, start_idx in enumerate(range(0, len(df) - window_size + 1)):
+    for window_number, start_idx in enumerate(range(0, len(df) - window_size + 1, step_size)):
         end_idx = start_idx + window_size
         window = df[df.frame.between(start_idx, end_idx)]
 
@@ -289,7 +282,7 @@ def compute_rolling_features(df, sampling_rate, window_duration=2):
 
 def ent(data):
     p_data= data.value_counts()/len(data) #  probabilities
-    entropy=sc.stats.entropy(p_data)
+    entropy=sc.stats.entropy(p_data) # corresponds to Shannon entropy
     return entropy
 
 def corr_lr(df, var):
@@ -299,25 +292,39 @@ def corr_lr(df, var):
     return idf.corr().loc['L','R']
 
 
-def rolling_corr_lr(df, var, sampling_rate=30, window_duration=2):
-    window_size = int(sampling_rate * window_duration)  # Convert seconds to frame count
-    results = []
+def rolling_lrcorr_angle_features(df, window_size=30, min_periods=1, var='angle'):
+    """
+    Compute rolling left-right correlation for the specified variable, preserving frame numbers.
 
-    for window_number, start_idx in enumerate(range(0, len(df) - window_size + 1)):
-        end_idx = start_idx + window_size
-        window = df[df.frame.between(start_idx, end_idx)]
+    Parameters:
+    - df: DataFrame containing the data.
+    - window_size: Rolling window size in frames (default: 30).
+    - min_periods: Minimum number of observations in the window to compute correlation.
+    - var: The column to compute the correlation on (default: 'angle').
 
-        # Skip empty or insufficient windows
-        if window.empty or len(window) < window_size:
-            continue
+    Returns:
+    - DataFrame with rolling correlations and corresponding frame numbers.
+    """
+    # Ensure sides 'R' and 'L' are present
+    if 'R' not in df['side'].unique() or 'L' not in df['side'].unique():
+        raise ValueError("Both 'R' and 'L' sides must be present in the data.")
+    
+    # Separate R and L data
+    right = df[df.side == 'R'].reset_index(drop=True)
+    left = df[df.side == 'L'].reset_index(drop=True)
 
-        # Calculate correlation for the current window
-        corr = corr_lr(window, var)
+    # Align lengths of R and L
+    length = min(len(right), len(left))
+    right = right.iloc[:length]
+    left = left.iloc[:length]
 
-        # Append results as a dictionary for clarity
-        results.append({
-            'correlation': corr
-        })
+    # Combine R and L with frame numbers
+    combined = pd.DataFrame({
+        'frame': right['frame'],  # Preserve frame numbers
+        'R': right[var],
+        'L': left[var]
+    }).reset_index(drop=True)
 
-    # Convert results to a DataFrame for easier analysis and return
-    return pd.DataFrame(results)
+    combined['rolling_corr'] = combined['R'].rolling(window=30, min_periods=1).corr(combined['L'])
+
+    return combined
