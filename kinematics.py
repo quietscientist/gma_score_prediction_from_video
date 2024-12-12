@@ -180,7 +180,7 @@ def compute_rolling_features_angle(df, sampling_rate, window_duration=2):
 
     for window_number, start_idx in enumerate(range(0, len(df) - window_size + 1)):
         end_idx = start_idx + window_size
-        window = df.iloc[start_idx:end_idx]
+        window = df[df.frame.between(start_idx, end_idx)]
 
         # Skip empty or insufficient windows
         if window.empty or len(window) < window_size:
@@ -254,7 +254,7 @@ def compute_rolling_features(df, sampling_rate, window_duration=2):
 
     for window_number, start_idx in enumerate(range(0, len(df) - window_size + 1)):
         end_idx = start_idx + window_size
-        window = df.iloc[start_idx:end_idx]
+        window = df[df.frame.between(start_idx, end_idx)]
 
         # Skip empty or insufficient windows
         if window.empty or len(window) < window_size:
@@ -297,3 +297,30 @@ def corr_lr(df, var):
     idf['R'] = df[df.side=='R'].reset_index()[var]
     idf['L'] = df[df.side=='L'].reset_index()[var]
     return idf.corr().loc['L','R']
+
+
+def rolling_corr_lr(df, var, sampling_rate=30, window_duration=2):
+    window_size = int(sampling_rate * window_duration)  # Convert seconds to frame count
+    results = []
+
+    for window_number, start_idx in enumerate(range(0, len(df) - window_size + 1)):
+        end_idx = start_idx + window_size
+        window = df.iloc[start_idx:end_idx]
+
+        # Skip empty or insufficient windows
+        if window.empty or len(window) < window_size:
+            continue
+
+        # Calculate correlation for the current window
+        corr = corr_lr(window, var)
+
+        # Append results as a dictionary for clarity
+        results.append({
+            'window_number': window_number,
+            't_start': window['time'].iloc[0], \
+            'video':np.unique(window.video)[0],
+            'correlation': corr
+        })
+
+    # Convert results to a DataFrame for easier analysis and return
+    return pd.DataFrame(results)
