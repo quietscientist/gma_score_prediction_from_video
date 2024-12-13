@@ -229,7 +229,7 @@ def xy_features(df):
     'IQRvelx':IQR_vel_x,'IQRvely':IQR_vel_y,\
     'IQRaccx':IQR_acc_x,'IQRaccy':IQR_acc_y,'meanent':mean_ent})
 
-def compute_rolling_features(df, sampling_rate, window_duration=2):
+def rolling_xy_features(df, window_size=30, min_periods=1):
     """
     Compute features over a rolling window.
 
@@ -241,42 +241,32 @@ def compute_rolling_features(df, sampling_rate, window_duration=2):
     Returns:
     - DataFrame containing computed features.
     """
-    window_size = int(sampling_rate * window_duration)  # Convert seconds to frame count
     step_size = window_size // 2
-    results = []
+    ent_x = df['x'].rolling(window=window_size, min_periods=min_periods).apply(lambda s: ent(s.round()), raw=False)
+    ent_y = df['y'].rolling(window=window_size, min_periods=min_periods).apply(lambda s: ent(s.round()), raw=False)
 
-    for window_number, start_idx in enumerate(range(0, len(df) - window_size + 1, step_size)):
-        end_idx = start_idx + window_size
-        window = df[df.frame.between(start_idx, end_idx)]
-
-        # Skip empty or insufficient windows
-        if window.empty or len(window) < window_size:
-            continue
-
-        # Compute features
-        median_x = window['x'].median()
-        median_y = window['y'].median()
-        IQR_x = window['x'].quantile(.75) - window['x'].quantile(.25)
-        IQR_y = window['y'].quantile(.75) - window['y'].quantile(.25)
-        median_vel_x = np.abs(window['velocity_x']).median()
-        median_vel_y = np.abs(window['velocity_y']).median()
-        IQR_vel_x = window['velocity_x'].quantile(.75) - window['velocity_x'].quantile(.25)
-        IQR_vel_y = window['velocity_y'].quantile(.75) - window['velocity_y'].quantile(.25)
-        IQR_acc_x = window['acceleration_x'].quantile(.75) - window['acceleration_x'].quantile(.25)
-        IQR_acc_y = window['acceleration_y'].quantile(.75) - window['acceleration_y'].quantile(.25)
-        ent_x = ent(window['x'].round(2))
-        ent_y = ent(window['y'].round(2))
-        mean_ent = (ent_x + ent_y) / 2
-
-        # Append features and metadata
-
-        results.append({'window_number': window_number, \
-                        't_start': window['time'].iloc[0], \
-                        'video':np.unique(window.video)[0],'bp':np.unique(window.bp)[0],\
-                        'medianx': median_x, 'mediany': median_y, 'IQRx': IQR_x,'IQRy': IQR_y,\
-                        'medianvelx':median_vel_x, 'medianvely':median_vel_y,\
-                        'IQRvelx':IQR_vel_x,'IQRvely':IQR_vel_y,\
-                        'IQRaccx':IQR_acc_x,'IQRaccy':IQR_acc_y,'meanent':mean_ent})
+    results = pd.DataFrame({
+    'frame': df['frame'],
+    'video': df['video'],
+    'bp': df['bp'],
+    'median_x': df['x'].rolling(window=window_size, min_periods=min_periods).median(),
+    'median_y': df['y'].rolling(window=window_size, min_periods=min_periods).median(),
+    'IQR_x': df['x'].rolling(window=window_size, min_periods=min_periods).quantile(.75) - \
+             df['x'].rolling(window=window_size, min_periods=min_periods).quantile(.25),
+    'IQR_y': df['y'].rolling(window=window_size, min_periods=min_periods).quantile(.75) - \
+                df['y'].rolling(window=window_size, min_periods=min_periods).quantile(.25),
+    'median_vel_x': np.abs(df['velocity_x']).rolling(window=window_size, min_periods=min_periods).median(),
+    'median_vel_y': np.abs(df['velocity_y']).rolling(window=window_size, min_periods=min_periods).median(),
+    'IQR_vel_x': df['velocity_x'].rolling(window=window_size, min_periods=min_periods).quantile(.75) - \
+                 df['velocity_x'].rolling(window=window_size, min_periods=min_periods).quantile(.25),
+    'IQR_vel_y': df['velocity_y'].rolling(window=window_size, min_periods=min_periods).quantile(.75) - \
+                    df['velocity_y'].rolling(window=window_size, min_periods=min_periods).quantile(.25),
+    'IQR_acc_x': df['acceleration_x'].rolling(window=window_size, min_periods=min_periods).quantile(.75) - \
+                    df['acceleration_x'].rolling(window=window_size, min_periods=min_periods).quantile(.25),
+    'IQR_acc_y': df['acceleration_y'].rolling(window=window_size, min_periods=min_periods).quantile(.75) - \
+                    df['acceleration_y'].rolling(window=window_size, min_periods=min_periods).quantile(.25),
+    'mean_ent': (ent_x + ent_y) / 2
+    })
 
     return pd.DataFrame(results)
 
@@ -292,7 +282,7 @@ def corr_lr(df, var):
     return idf.corr().loc['L','R']
 
 
-def rolling_lrcorr_angle_features(df, window_size=30, min_periods=1, var='angle'):
+def rolling_corr_lr(df, window_size=30, min_periods=1, var='angle'):
     """
     Compute rolling left-right correlation for the specified variable, preserving frame numbers.
 
@@ -306,8 +296,8 @@ def rolling_lrcorr_angle_features(df, window_size=30, min_periods=1, var='angle'
     - DataFrame with rolling correlations and corresponding frame numbers.
     """
     # Ensure sides 'R' and 'L' are present
-    if 'R' not in df['side'].unique() or 'L' not in df['side'].unique():
-        raise ValueError("Both 'R' and 'L' sides must be present in the data.")
+    # if 'R' not in df['side'].unique() or 'L' not in df['side'].unique():
+    #     raise ValueError("Both 'R' and 'L' sides must be present in the data.")
     
     # Separate R and L data
     right = df[df.side == 'R'].reset_index(drop=True)
